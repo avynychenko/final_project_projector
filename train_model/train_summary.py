@@ -1,5 +1,6 @@
 import pandas as pd
 import torch
+import os
 
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers import T5Tokenizer, T5ForConditionalGeneration
@@ -10,19 +11,23 @@ class FineTuningSummary:
     def __init__(
             self,
             raw_data,
-            output_summary
+            validation_data,
+            output_summary,
+            file_output
     ):
         """
         # :param dir:
         """
 
         self.raw_data = raw_data
+        self.validation_data = validation_data
         self.output_summary = output_summary
+        self.file_output = file_output
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.tokenizer = T5Tokenizer.from_pretrained("t5-base", truncation=True)
+        self.tokenizer = T5Tokenizer.from_pretrained("t5-small", truncation=True)
 
-        self.MAX_LEN = 512
-        self.SUMMARY_LEN = 150
+        self.MAX_LEN = 10
+        self.SUMMARY_LEN = 5
         self.BATCH_SIZE = 5
         self.TRAIN_EPOCHS = 1
         # self.VAL_EPOCHS = 1
@@ -62,7 +67,7 @@ class FineTuningSummary:
                 generated_ids = model.generate(
                     input_ids=ids,
                     attention_mask=mask,
-                    max_length=150,
+                    max_length=self.MAX_LEN,
                     num_beams=2,
                     repetition_penalty=2.5,
                     length_penalty=1.0,
@@ -72,9 +77,6 @@ class FineTuningSummary:
                          generated_ids]
                 target = [self.tokenizer.decode(t, skip_special_tokens=True, clean_up_tokenization_spaces=True) for t in
                           y]
-                print(generated_ids)
-                print(preds)
-                print(target)
 
                 predictions.extend(preds)
                 actuals.extend(target)
@@ -87,17 +89,30 @@ class FineTuningSummary:
 
         df = pd.read_csv(self.raw_data, usecols=['Summary', 'Text'])
 
-        df_summary = df.rename(columns={'Text': 'text', 'Summary': 'ctext'})
+        df_summary = df.rename(columns={'Text': 'ctext', 'Summary': 'text'})
         df_summary['ctext'] = 'summarize: ' + df_summary.ctext
 
         # replace('<br />') token to whitespace
-        df_summary['text'] = df_summary['text'].apply(lambda x: x.replace('<br />', ' '))
+        df_summary['ctext'] = df_summary['ctext'].apply(lambda x: x.replace('<br />', ' '))
 
         return df_summary
 
-    def fine_tuning_model(self, df):
+    def text_preprocessing_val(self):
+
+        df = pd.read_csv(self.validation_data, usecols=['Summary', 'Text'])
+
+        df_summary = df.rename(columns={'Text': 'ctext', 'Summary': 'text'})
+        df_summary['ctext'] = 'summarize: ' + df_summary.ctext
+
+        # replace('<br />') token to whitespace
+        df_summary['ctext'] = df_summary['ctext'].apply(lambda x: x.replace('<br />', ' '))
+
+        return df_summary
+
+    def fine_tuning_model(self):
         # read data
         data = self.text_preprocessing()
+        data = data.head(10000)
 
         # prepare dataset in proper view for model
         training_set = DatasetPreparation(data, self.tokenizer, self.MAX_LEN, self.SUMMARY_LEN)
@@ -111,30 +126,57 @@ class FineTuningSummary:
         training_loader = DataLoader(training_set, **train_params)
 
         # load pretrained T5 model
-        model = T5ForConditionalGeneration.from_pretrained("t5-base")
+        model = T5ForConditionalGeneration.from_pretrained("t5-small")
         model = model.to(self.device)
+        print(self.device)
 
         optimizer = torch.optim.Adam(params=model.parameters(), lr=self.LEARNING_RATE)
 
-        training = self.train(model=model,
+        # training = self.train(model=model,
+        #                       epoch=self.TRAIN_EPOCHS,
+        #                       loader=training_loader,
+        #                       optimizer=optimizer)
+
+        train_loss = []
+        print('Start training')
+        for epoch in range(self.TRAIN_EPOCHS):
+            loss = self.train(model=model,
                               epoch=self.TRAIN_EPOCHS,
                               loader=training_loader,
                               optimizer=optimizer)
-
-        train_loss = []
-        for epoch in range(self.TRAIN_EPOCHS):
-            loss = training.train(epoch, training_loader)
             train_loss.append(loss)
 
         # Saving the model after training
         print('Saving fine-tuned summary model')
         model.save_pretrained(self.output_summary)
-        # tokenizer.save_pretrained(path)
 
+    def inference_summary(self):
         # load model
 
-        # from transformers import AutoModel
-        #
-        # model = AutoModel.from_pretrained(save_directory, from_tf=True)
+        from transformers import AutoModel, AutoModelWithLMHead
+        model = AutoModelWithLMHead.from_pretrained(self.output_summary)
+        # model = AutoModel.from_pretrained(self.output_summary)
+        model = model.to(self.device)
 
-        # model =.from_pretrained("path/to/awesome-name-you-picked").
+        val_data = self.text_preprocessing_val()
+
+        # prepare dataset in proper view for model
+        val_set = DatasetPreparation(val_data, self.tokenizer, self.MAX_LEN, self.SUMMARY_LEN)
+
+        val_params = {
+            'batch_size': self.BATCH_SIZE,
+            'shuffle': False,
+            'num_workers': 0
+        }
+
+        val_loader = DataLoader(val_set, **val_params)
+
+        predictions, actuals = self.validate(model, val_loader)
+        final_df = pd.DataFrame({'Generated Text': predictions, 'Actual Text': actuals})
+
+        # save predictions
+        path = '/'.join(self.file_output.split('/')[:-1])
+        if not os.path.exists(path):
+            os.makedirs(path)
+        final_df.to_csv(self.file_output, index=False)
+
