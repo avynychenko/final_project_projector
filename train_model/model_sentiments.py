@@ -21,6 +21,8 @@ class classifier(nn.Module):
                             dropout=dropout,
                             batch_first=True)
 
+        self.self_attention = nn.MultiheadAttention(hidden_dim, 8)
+
         # dense layer
         self.fc = nn.Linear(hidden_dim * 2, output_dim)
 
@@ -33,9 +35,11 @@ class classifier(nn.Module):
         # embedded = [batch size, sent_len, emb dim]
 
         # packed sequence
-        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths, batch_first=True)
+        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths.cpu(), batch_first=True)
 
         packed_output, (hidden, cell) = self.lstm(packed_embedded)
+
+        hidden, _ = self.self_attention(hidden, hidden, hidden)
         # hidden = [batch size, num layers * num directions,hid dim]
         # cell = [batch size, num layers * num directions,hid dim]
 

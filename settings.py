@@ -13,4 +13,11 @@ SENTIMENT_MODEL_NAME = 'best_sentiments.pt'
 OUTPUT_PATH_MODELS = f'{DATA_PATH}/saved_models'
 OUTPUT_PATH_RESULTS = f'{DATA_PATH}/processed'
 
-SUMMARY_OUTPUT = 'summary.csv'
+VOCAB = 'saved_vocab.pkl'
+
+SUMMARY_OUTPUT = 'summary_preliminary.csv'
+SENTIMENTS_OUTPUT = 'sentiments_preliminary.csv'
+KEYWORDS_OUTPUT = 'keywords_preliminary.csv'
+NER_OUTPUT = 'ner_preliminary.csv'
+
+FINAL_OUTPUT = 'final_results.xlsx'

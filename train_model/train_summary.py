@@ -2,9 +2,13 @@ import pandas as pd
 import torch
 import os
 
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import DataLoader
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 from train_model.dataset_preparation_for_sum import DatasetPreparation
+from transformers import AutoModelWithLMHead
+
+import warnings
+warnings.filterwarnings("ignore")
 
 
 class FineTuningSummary:
@@ -26,11 +30,10 @@ class FineTuningSummary:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.tokenizer = T5Tokenizer.from_pretrained("t5-small", truncation=True)
 
-        self.MAX_LEN = 10
-        self.SUMMARY_LEN = 5
+        self.MAX_LEN = 180
+        self.SUMMARY_LEN = 40
         self.BATCH_SIZE = 5
-        self.TRAIN_EPOCHS = 1
-        # self.VAL_EPOCHS = 1
+        self.TRAIN_EPOCHS = 2
         self.LEARNING_RATE = 1e-4
         self.RANDOM_SEED = 42
 
@@ -112,7 +115,6 @@ class FineTuningSummary:
     def fine_tuning_model(self):
         # read data
         data = self.text_preprocessing()
-        data = data.head(10000)
 
         # prepare dataset in proper view for model
         training_set = DatasetPreparation(data, self.tokenizer, self.MAX_LEN, self.SUMMARY_LEN)
@@ -132,13 +134,7 @@ class FineTuningSummary:
 
         optimizer = torch.optim.Adam(params=model.parameters(), lr=self.LEARNING_RATE)
 
-        # training = self.train(model=model,
-        #                       epoch=self.TRAIN_EPOCHS,
-        #                       loader=training_loader,
-        #                       optimizer=optimizer)
-
         train_loss = []
-        print('Start training')
         for epoch in range(self.TRAIN_EPOCHS):
             loss = self.train(model=model,
                               epoch=self.TRAIN_EPOCHS,
@@ -147,18 +143,17 @@ class FineTuningSummary:
             train_loss.append(loss)
 
         # Saving the model after training
-        print('Saving fine-tuned summary model')
+        print('Saving fine-tuned summary model to: ' + self.output_summary)
         model.save_pretrained(self.output_summary)
 
     def inference_summary(self):
         # load model
-
-        from transformers import AutoModel, AutoModelWithLMHead
         model = AutoModelWithLMHead.from_pretrained(self.output_summary)
-        # model = AutoModel.from_pretrained(self.output_summary)
         model = model.to(self.device)
 
         val_data = self.text_preprocessing_val()
+
+        df = pd.read_csv(self.validation_data)
 
         # prepare dataset in proper view for model
         val_set = DatasetPreparation(val_data, self.tokenizer, self.MAX_LEN, self.SUMMARY_LEN)
@@ -172,11 +167,13 @@ class FineTuningSummary:
         val_loader = DataLoader(val_set, **val_params)
 
         predictions, actuals = self.validate(model, val_loader)
-        final_df = pd.DataFrame({'Generated Text': predictions, 'Actual Text': actuals})
+        final_df = pd.DataFrame({'Generated Summary': predictions, 'Actual Text': actuals})
 
+        final_df = pd.concat([df[['Text', 'Score', 'Summary']], final_df[['Generated Summary']]], axis=1)
         # save predictions
         path = '/'.join(self.file_output.split('/')[:-1])
         if not os.path.exists(path):
             os.makedirs(path)
-        final_df.to_csv(self.file_output, index=False)
 
+        print('Summaries were successfully generated, saving...')
+        final_df.to_csv(self.file_output, index=False)
