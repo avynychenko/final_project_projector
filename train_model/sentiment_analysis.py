@@ -44,7 +44,7 @@ class SentimentAnalysis:
         self.num_layers = 2
         self.bidirection = True
         self.dropout = 0.2
-        self.N_EPOCHS = 5
+        self.N_EPOCHS = 10
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -209,6 +209,7 @@ class SentimentAnalysis:
             if not os.path.exists(path):
                 os.makedirs(path)
             if valid_loss < best_valid_loss:
+                print('Saving the best model with valid loss: ' + str(valid_loss))
                 best_valid_loss = valid_loss
                 torch.save(model.state_dict(), self.sentiments_model_path)
 

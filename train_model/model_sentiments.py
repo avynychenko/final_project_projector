@@ -23,10 +23,7 @@ class classifier(nn.Module):
 
         self.self_attention = nn.MultiheadAttention(hidden_dim, 8)
 
-        # dense layer
         self.fc = nn.Linear(hidden_dim * 2, output_dim)
-
-        # activation function
         self.act = nn.Sigmoid()
 
     def forward(self, text, text_lengths):

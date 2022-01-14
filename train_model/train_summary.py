@@ -33,7 +33,7 @@ class FineTuningSummary:
         self.MAX_LEN = 180
         self.SUMMARY_LEN = 40
         self.BATCH_SIZE = 5
-        self.TRAIN_EPOCHS = 2
+        self.TRAIN_EPOCHS = 3
         self.LEARNING_RATE = 1e-4
         self.RANDOM_SEED = 42
 
@@ -136,6 +136,7 @@ class FineTuningSummary:
 
         train_loss = []
         for epoch in range(self.TRAIN_EPOCHS):
+            print('Training Epoch: ' + str(epoch))
             loss = self.train(model=model,
                               epoch=self.TRAIN_EPOCHS,
                               loader=training_loader,
